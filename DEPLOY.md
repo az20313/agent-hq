@@ -10,14 +10,26 @@
 
 | 项 | 值 |
 | --- | --- |
-| 上游仓库 | `https://github.com/zhaoxinfeng619-hub/agent-hq.git` |
-| 上游 commit | `141ce621ce1cd1fffb9e854f5b2f59e151a4b2b6`（短 `141ce62`） |
-| commit 时间 / 说明 | 2026-10-29 21:40:52 +0800 / `ci: 重新触发 Pages 部署` |
+| 上游仓库 | `https://github.com/az20313/agent-hq.git` |
+| 上游基线 commit | `141ce621ce1cd1fffb9e854f5b2f59e151a4b2b6`（短 `141ce62`） |
+| 基线时间 / 说明 | 2026-10-29 21:40:52 +0800 / `ci: 重新触发 Pages 部署` |
+| 真实数据桥 commit | `d1ce0ad59064616cf10817faaf1fac378572b5b6`（短 `d1ce0ad`） |
+| 桥接时间 / 说明 | 2026-11-02 23:06:54 +0800 / `feat: real-data bridge (snapshot.json) + deploy docs` |
+| 实时轮询 commit | `6652fb71298e9a004814190749eae2d013165801`（短 `6652fb7`） |
+| 轮询时间 / 说明 | 2026-11-02 23:25:28 +0800 / `feat: live snapshot polling (30s, hash-diff, visibility pause)` |
+| 快照脱敏 commit | `4909045dcbe27cf1cbff707ce66dfc97565e996c`（短 `4909045`） |
+| 脱敏时间 / 说明 | 2026-11-02 23:32:39 +0800 / `fix: sanitize snapshot (strip paths, session keys, summaries)` |
+| 推荐部署 commit | `4909045`（已包含桥接 + 轮询 + 快照脱敏） |
 | 本地访问地址 | `http://127.0.0.1:8901/` |
 | 静态服务脚本 | `D:\OpenClaw\workspace\projects\.agent-hq-static-server.mjs` |
 | 构建命令 | `npm run build`（即 `tsc -b && vite build`） |
-| 构建产物 | `dist/index.html`（单文件，当前 761,297 字节）+ `dist/snapshot.json`（当前 15,213 字节） |
-| 真实数据桥状态 | 阶段一完成；阶段二进行中，**未验证**（详见第 4 节） |
+| 构建产物 | `dist/index.html`（单文件，当前 764,442 字节）+ `dist/snapshot.json`（当前 27,873 字节） |
+| 当前快照 | 12 agents / 5 tasks / 27,873 字节（脱敏后；脱敏前 31,029 字节）；`/snapshot.json` 返回 `application/json` |
+| 真实数据桥状态 | 桥接与实时轮询均已提交；当前工作区快照已更新；浏览器交互本文档未独立复验（详见第 4 节） |
+
+提交顺序：`141ce62`（上游基线，仅模拟世界）→ `d1ce0ad`（真实数据桥）→ `6652fb7`（30s 实时轮询）→ `4909045`（快照脱敏）。
+
+> 注意：`d1ce0ad` / `6652fb7` / `4909045` 是当前本机 `main` 上的提交，`origin/main` 仍指向 `141ce62`，尚未推送。从公开 GitHub clone 时需先推送这三个 commit；从本机仓库 clone 则可直接 checkout `4909045`。
 
 最短路径（本机现状，产物已存在）：
 
@@ -47,31 +59,26 @@ node D:\OpenClaw\workspace\projects\.agent-hq-static-server.mjs
 ### 1.2 项目来源
 
 ```powershell
-git clone https://github.com/zhaoxinfeng619-hub/agent-hq.git agent-hq-upstream
+git clone https://github.com/az20313/agent-hq.git agent-hq-upstream
 cd agent-hq-upstream
-git checkout 141ce621ce1cd1fffb9e854f5b2f59e151a4b2b6
+git checkout 4909045dcbe27cf1cbff707ce66dfc97565e996c
 ```
 
-上述 commit 是上游基线。**注意：当前工作区不是干净的上游。** `git status` 实测（节选，省略部分日志/报告）：
+提交顺序（本地 `main`）：
 
-```text
- M src/components/TaskTable.tsx
- M src/data/world.ts
- M src/main.tsx
-?? INTEGRATION.md
-?? REAL-DATA-BRIDGE-REPORT.md
-?? REAL-DATA-BRIDGE-PHASE2-REPORT.md
-?? public/
-?? scripts/
-?? src/data/live.ts
-?? start-8901.cmd
-?? build.log / install.log / upstream-install-report.md
-```
+| 顺序 | commit | 内容 |
+| --- | --- | --- |
+| 1 | `141ce62` | 上游基线：只有模拟世界，没有真实数据桥 |
+| 2 | `d1ce0ad` | 真实数据桥：`scripts/real-snapshot.js`、`public/snapshot.json`、`src/data/live.ts`，以及 `main.tsx` / `world.ts` / `TaskTable.tsx` 的接入改动 |
+| 3 | `6652fb7` | 实时轮询：30s 轮询、快照指纹去重、页面隐藏暂停（在 `d1ce0ad` 之上） |
+| 4 | `4909045` | 快照脱敏：生成器集成 `sanitize-snapshot.js`，移除内部路径、session key、runId、任务摘要 |
 
-含义：
+`6652fb7` 已包含 `d1ce0ad` 的全部桥接代码；`4909045` 只在其上增加生成器脱敏，不改变前端接入。clone 后 checkout 到 `4909045`（或至少 `6652fb7`）即可得到真实数据能力，**不需要再手工复制 `src/` 文件**。
 
-- 干净 clone 出来的 `141ce62` **只有模拟世界**，没有真实数据桥，也没有 `scripts/real-snapshot.js`、`public/snapshot.json`、`src/data/live.ts`。
-- 真实模式所需的改动**尚未提交、未推送**，只存在于本机工作区。换机器部署时必须把这批文件一起带走（见 2.2），否则只能得到 Mock 模式。
+注意：
+
+- `origin/main` 目前仍指向 `141ce62`，`d1ce0ad` / `6652fb7` / `4909045` 尚未推送。从公开 GitHub clone 只能拿到基线；需要先从本机推送这三个 commit，或直接从本机仓库 clone。
+- 当前工作区在 `4909045` 之上还有一处未提交改动：`public/snapshot.json`（最新 12-agent 脱敏快照，27,873 字节）。提交版 `6652fb7` / `4909045` 自带快照仍为 15,213 字节 / 3 个落位 Agent；当前工作区快照为 27,873 字节 / 12 个 Agent（脱敏前 31,029 字节）。
 - `dist/`、`node_modules/` 被 `.gitignore` 忽略，不会随仓库分发。
 
 ---
@@ -84,40 +91,38 @@ git checkout 141ce621ce1cd1fffb9e854f5b2f59e151a4b2b6
 
 ```powershell
 cd D:\OpenClaw\workspace\projects
-git clone https://github.com/zhaoxinfeng619-hub/agent-hq.git agent-hq-upstream
+git clone https://github.com/az20313/agent-hq.git agent-hq-upstream
 cd agent-hq-upstream
-git checkout 141ce621ce1cd1fffb9e854f5b2f59e151a4b2b6
+git checkout 4909045dcbe27cf1cbff707ce66dfc97565e996c
 ```
 
 若目录已存在，`git clone` 会失败；不要覆盖现有工作区，先确认目标目录。
 
-### 2.2 带入真实数据桥文件（需要真实模式时）
+若从公开 GitHub clone，先确认远端已包含 `4909045`（当前 `origin/main` 仍是 `141ce62`，需要先把本机这三个 commit 推送上去）；从本机仓库 clone 则不受影响。
 
-当前工作区中以下内容没有进入任何 commit（新文件未跟踪，`src/` 下三个文件是未提交修改），必须从现有机器复制或先提交到自己的仓库：
+### 2.2 真实数据桥文件（已包含在 commit 中）
 
-| 路径 | 作用 |
+`d1ce0ad` 已提交桥接文件，`6652fb7` 已提交实时轮询，`4909045` 已提交生成器脱敏。按 2.1 checkout 到 `4909045` 后，以下文件都在仓库里，**不需要再手工复制**：
+
+| 路径 | 作用 | 引入 commit |
+| --- | --- | --- |
+| `scripts/real-snapshot.js` | 生成 `snapshot.json` 的零依赖脚本（含脱敏） | `d1ce0ad` / `4909045` |
+| `scripts/sanitize-snapshot.js` | 移除内部路径、session key、runId、任务摘要 | `4909045` |
+| `public/snapshot.json` | 已生成的真实快照（提交版 15,213 字节） | `d1ce0ad` |
+| `src/data/live.ts` | 浏览器端 fetch、结构校验与 30s 轮询 | `d1ce0ad` / `6652fb7` |
+| `src/main.tsx` | 启动时加载快照，再动态挂载 App，并启动轮询 | `d1ce0ad` / `6652fb7` |
+| `src/data/world.ts` | `applySnapshot()` / `paused` | `d1ce0ad` |
+| `src/components/TaskTable.tsx` | 去掉模块级 `AGENT_BY_ID`，改为行内查找 | `d1ce0ad` |
+
+如需当前工作区的 **12-agent 快照**（27,873 字节，脱敏后），只需同步一处未提交改动：
+
+| 路径 | 说明 |
 | --- | --- |
-| `scripts/real-snapshot.js` | 生成 `snapshot.json` 的零依赖脚本 |
-| `public/snapshot.json` | 已生成的真实快照（当前 15,213 字节） |
-| `src/data/live.ts` | 浏览器端 fetch + 结构校验 |
-| `src/main.tsx` | 启动时先加载快照，再动态挂载 App |
-| `src/data/world.ts` | `applySnapshot()` / `paused` |
-| `src/components/TaskTable.tsx` | 去掉模块级 `AGENT_BY_ID`，改为行内查找 |
-| `start-8901.cmd`（可选） | 本机启动 8901 的快捷脚本 |
+| `public/snapshot.json` | 当前 12 agents / 5 tasks 的脱敏快照（脱敏前 31,029 字节） |
 
-打包示例（未验证执行）：
+从现有机器复制 `public/snapshot.json` 即可；若已提交并推送，则直接 checkout 最新 commit。
 
-```powershell
-# 在现有工作区所在机器上
-cd D:\OpenClaw\workspace\projects\agent-hq-upstream
-Compress-Archive -Force -DestinationPath ..\agent-hq-bridge.zip `
-  scripts, public, src\data\live.ts, src\main.tsx, src\data\world.ts, src\components\TaskTable.tsx
-
-# 在目标机器 clone 后解压覆盖
-Expand-Archive -Force ..\agent-hq-bridge.zip .
-```
-
-不需要真实数据时跳过本步，页面会使用内置模拟世界。
+按 2.1 checkout 到 `4909045` 后，桥接代码已经就绪；不需要真实数据时跳过 2.4 的快照生成，页面会使用内置模拟世界。
 
 ### 2.3 安装依赖
 
@@ -140,6 +145,7 @@ node scripts\real-snapshot.js
 
 - `D:\OpenClaw\workspace\projects\agent-hq\tasks.jsonl`
 - `D:\OpenClaw\workspace\projects\agent-hq\metrics-history.jsonl`
+- `D:\OpenClaw\data\openclaw.json`、`D:\OpenClaw\data\agents\`、`D:\OpenClaw\data\state\openclaw.sqlite`（`4909045` 的生成器；只读，用于 12-agent 名单与会话运行状态）
 
 默认输出 `public\snapshot.json`。常用参数：
 
@@ -150,7 +156,9 @@ node scripts\real-snapshot.js --help
 ```
 
 脚本只读输入、只写输出文件；输出前执行 `validateSnapshot()`，结构不合法会非 0 退出且不写坏 JSON。
-当前 `public/snapshot.json` 已存在（15,213 字节，生成时间 2026-11-02 22:42:19），本次文档编写**没有重跑**生成器。
+当前 `public/snapshot.json` 已存在（27,873 字节，文件时间 2026-11-02 23:31:13；快照 `meta.generatedAt` 为 2026-11-02 23:27:31），本次文档编写**没有重跑**生成器。脱敏前同一份数据为 31,029 字节。
+
+注意：`6652fb7` / `4909045` 提交版自带的 `public/snapshot.json` 仍是 15,213 字节、3 个落位 Agent；要复现当前 12-agent 快照，需在 `4909045` 的生成器上重新执行，或直接使用 2.2 中列出的当前工作区快照。
 
 ### 2.5 构建
 
@@ -165,7 +173,7 @@ tsc -b && vite build
 ```
 
 - `vite.config.ts` 启用 `vite-plugin-singlefile`，JS/CSS 内联，`base: './'`。
-- 当前阶段二构建结果：68 modules，`dist/index.html` 761,297 字节（gzip 约 209 KB），耗时约 1.92s。
+- 当前构建产物：`dist/index.html` 764,442 字节（文件时间 2026-11-02 23:25:41）；本次文档未重跑构建，模块数与 gzip 大小未复验。
 - 上游基线构建结果：66 modules，`dist/index.html` 757,706 字节，耗时约 2.73s。
 - `public/` 会被原样复制到 `dist/`，所以 `public/snapshot.json` → `dist/snapshot.json`。
 - **未验证**：本文档没有重新执行构建；以上来自现有 `build.log`、`REAL-DATA-BRIDGE-PHASE2-REPORT.md` 和 `dist/` 产物时间戳。
@@ -209,14 +217,15 @@ $s.Content.Substring(0, 40)
 当前实测结果：
 
 ```text
-200 761297 text/html; charset=utf-8
-200 15213 application/json; charset=utf-8
-{"kpis":{"total":5,"running":0,"blocked":0,"done":5,...
+200 764442 text/html; charset=utf-8
+200 27873 application/json; charset=utf-8
+{"kpis":{"total":5,"running":3,"blocked":0,"done":5,...
 ```
 
 浏览器侧验收标记：
 
-- 控制台出现 `[live] 已接入真实快照：3 agents / 5 tasks / ts=...`，或 `[live] 使用内置模拟世界`。
+- 控制台出现 `[live] 已接入真实快照：12 agents / 5 tasks / ts=...`，或 `[live] 使用内置模拟世界`。
+- 控制台出现 `[live] 轮询已启动：每 30s 检查 ./snapshot.json`；快照变化时出现 `[live] 快照更新：12 agents / 5 tasks / ts=...`。
 - `<html data-source="live">` 表示真实快照生效；`data-source="mock"` 表示回退模拟世界。
 - 以上浏览器行为来自阶段二报告，**本文档未独立复验（未验证）**。
 
@@ -255,10 +264,10 @@ npm run preview # 127.0.0.1:5274
 
 | 文件 | 角色 |
 | --- | --- |
-| `scripts/real-snapshot.js` | 零依赖生成器：读 `tasks.jsonl` + `metrics-history.jsonl`，写 `public/snapshot.json` |
+| `scripts/real-snapshot.js` | 零依赖生成器：读 `tasks.jsonl` + `metrics-history.jsonl`（当前增强版还读 `openclaw.json` / `data/agents` / `openclaw.sqlite`），写 `public/snapshot.json` |
 | `public/snapshot.json` | 上游 `Snapshot` 结构 + 附加 `meta` 诊断字段 |
-| `src/data/live.ts` | `fetchSnapshot()`：`cache: 'no-store'`，校验 `content-type` 与最小结构 |
-| `src/main.tsx` | `boot()`：先 `fetchSnapshot()` → `world.applySnapshot()`，再动态 import App |
+| `src/data/live.ts` | `fetchSnapshot()`：`cache: 'no-store'`，校验 `content-type` 与最小结构；`startLivePolling()`：30s 轮询、指纹去重、页面隐藏暂停 |
+| `src/main.tsx` | `boot()`：先 `fetchSnapshot()` → `world.applySnapshot()`，再动态 import App，最后启动轮询 |
 | `src/data/world.ts` | `paused` 标志、`applySnapshot()`、`tick()` 早退、演示入口禁用、`deptLoad` 覆盖 |
 | `src/components/TaskTable.tsx` | 任务行改为在 `snap.agents` 中查找 agent，避免单文件构建下模块级 Map 提前求值 |
 
@@ -282,20 +291,22 @@ agent-hq\metrics-history.jsonl ───┘         （映射 / 派生 / 校验�
 ```
 
 - 真实数据只读：生成器不写 `tasks.jsonl` / `metrics-history.jsonl`，不调用 agent，不触碰 NAS。
-- 浏览器只在启动时加载一次；没有定时刷新。
+- 浏览器启动时加载一次，之后每 30s 重新拉取 `./snapshot.json`；快照指纹不变时不重复 `applySnapshot`，页面隐藏时暂停轮询，恢复可见时立即补拉一次。
 
 ### 4.3 当前进度
 
 | 阶段 | 状态 | 实际依据 | 验证情况 |
 | --- | --- | --- | --- |
-| 阶段一：生成器 + 快照 | **完成** | `scripts/real-snapshot.js`、`public/snapshot.json`（15,213 字节）、`INTEGRATION.md`、`REAL-DATA-BRIDGE-REPORT.md` 均存在 | 结构校验由报告记录为 OK；本文档只核对了文件与大小，**未重跑生成器** |
-| 阶段二：浏览器接入 | **进行中，未验证** | `src/main.tsx`、`src/data/live.ts`、`src/data/world.ts`、`src/components/TaskTable.tsx` 已有改动；`dist/index.html` 761,297 字节 | 改动未提交；阶段二报告自称已通过 Chrome headless 验收，但**本文档未独立复验浏览器交互，统一标记为未验证** |
+| 阶段一：生成器 + 快照 | **完成，已提交** | `scripts/real-snapshot.js`、`public/snapshot.json` 由 `d1ce0ad` 引入（提交版 15,213 字节）；当前工作区快照 27,873 字节；`INTEGRATION.md`、`REAL-DATA-BRIDGE-REPORT.md` 均存在 | 结构校验由报告记录为 OK；本文档只核对了文件与大小，**未重跑生成器** |
+| 阶段二：浏览器接入 | **完成，已提交** | `src/main.tsx`、`src/data/live.ts`、`src/data/world.ts`、`src/components/TaskTable.tsx` 的接入改动在 `d1ce0ad`；`dist/index.html` 764,442 字节 | 阶段二报告自称已通过 Chrome headless 验收，但**本文档未独立复验浏览器交互，统一标记为未验证** |
+| 实时轮询 | **完成，已提交** | `6652fb7` 修改 `src/data/live.ts` / `src/main.tsx`，30s 轮询、指纹去重、可见性暂停；`LIVE-REFRESH-REPORT.md` | 报告记录已验收；本文档未独立复验浏览器轮询 |
+| 快照脱敏 | **完成，已提交** | `4909045` 增加 `scripts/sanitize-snapshot.js` 并接入生成器；快照从 31,029 字节降到 27,873 字节 | 本文档只核对输出大小，**未逐字段复验脱敏规则** |
 
-阶段一当前快照的已知数字（来自 `REAL-DATA-BRIDGE-REPORT.md` 与 `dist/snapshot.json` 文件头）：
+当前快照的已知数字（来自 `public/snapshot.json` / `dist/snapshot.json`）：
 
-- 5 条任务、3 个可落位 Agent、9 个未落位 Agent、10 条派生事件、206 个会话；
-- `kpis.total=5`、`done=5`、`running=0`、`blocked=0`、`tokens=15,535,235`；
-- 所有任务均为 `done`，因此 `progress=100%`、画面偏空是真实状态，不是桥接故障。
+- 5 条任务、12 个落位 Agent（9 个按部门表映射，3 个走兜底映射）、10 条派生事件、206 个会话；
+- `kpis.total=5`、`done=5`、`running=3`、`blocked=0`、`tokens=15,535,235`；
+- 5 条任务均为 `done`，`progress=100%`；`running=3` 来自最近仍有未完成会话运行的 Agent，不是任务未完成。
 
 ### 4.4 字段支持情况（简要）
 
@@ -303,16 +314,17 @@ agent-hq\metrics-history.jsonl ───┘         （映射 / 派生 / 校验�
 | --- | --- | --- |
 | `tasks` / 任务状态 / 起止时间 / 部门 | `tasks.jsonl` | 能接 |
 | `agents[].tokens` / `kpis.tokens` / 会话数 | `metrics-history.jsonl` | 能接（累计值，非当前快照消耗） |
-| `agents[].deptId/status/deskIndex/heat` | 该 Agent 最近一条任务 | 派生，不是实时心跳 |
+| `agents[].deptId/deskIndex/heat` | 部门表 + 最近任务 | 派生，不是实时心跳 |
+| `agents[].status` | 最近任务状态 + 2h 内未完成会话运行证据 | 派生；无证据回落 `idle` |
 | `events` | 任务生命周期时间戳 | 派生，不是真实工具调用流 |
-| `deptLoad` | `agents[]` 按部门聚合，12 房间全量 | 派生 |
+| `deptLoad` | `agents[]` 按部门聚合，12 房间全量（含兜底映射） | 派生 |
 | `meeting` | 无真实来源 | **未接**，固定 `null` |
 | `tasks[].tool` | 无来源 | **未接**，固定 `"未接（TODO）"` |
 | `tasks[].progress` | 无实时进度 | **未接**，仅 `done=100`，其余 `0` |
 | `tasks[].tokens` | 无逐任务 token | **未接**，固定 `0` |
 | `agents[].seatIndex` | 无会议 | **未接**，固定 `null` |
 
-`snapshot.json` 顶层还有一个 `meta` 字段（`Snapshot` 类型之外），包含 `source`、`counts`、`agentStats`、`unplacedAgents`、`roomMapping`、`derived`、`todo`、`warnings`。读取时可忽略，但排查数据问题时应先看它。
+`snapshot.json` 顶层还有一个 `meta` 字段（`Snapshot` 类型之外），当前包含 `source`、`counts`、`statusCounts`、`agentStats`、`deptMapping`、`unassignedAgents`、`roster`、`roomMapping`、`statusRules`、`derived`、`todo`、`warnings`。读取时可忽略，但排查数据问题时应先看它。
 
 ### 4.5 更新快照
 
@@ -323,7 +335,8 @@ npm run build
 ```
 
 原因：构建会把 `public/snapshot.json` 复制到 `dist/`，只重新生成 `public/` 不会影响 8901 正在服务的 `dist/`。
-当前没有自动刷新；页面不重启不会重新 fetch。
+
+页面已启用 30s 轮询：重新构建后无需手动刷新，正常在 30s 内自动应用新快照（控制台出现 `[live] 快照更新`）。生成器本身不会自动运行；仍需要先执行 `node scripts\real-snapshot.js`（或外部定时任务），再执行 `npm run build`。
 
 ---
 
@@ -331,24 +344,41 @@ npm run build
 
 ### 5.1 回滚真实数据桥代码
 
+只回滚实时轮询、保留真实数据桥：
+
+```powershell
+cd D:\OpenClaw\workspace\projects\agent-hq-upstream
+git revert --no-edit 6652fb7
+npm run build
+```
+
+完全回滚到上游基线（撤销桥接 + 轮询）：
+
 ```powershell
 cd D:\OpenClaw\workspace\projects\agent-hq-upstream
 
-# 1) 丢弃 3 个已跟踪文件的改动（world.ts / main.tsx / TaskTable.tsx）
-git checkout -- src/
+# 1) 先备份当前工作区的快照（有未提交改动）
+Copy-Item public\snapshot.json ..\snapshot-backup.json -Force
 
-# 2) 删除未跟踪的新文件（git checkout 不会删除它）
+# 2) 恢复基线 src/
+git checkout 141ce62 -- src
+
+# 3) 删除桥接引入、基线中不存在的文件
 Remove-Item src\data\live.ts
+Remove-Item public\snapshot.json
+Remove-Item scripts\real-snapshot.js
+Remove-Item scripts\sanitize-snapshot.js
 
-# 3) 重建 dist
+# 4) 重建 dist
 npm run build
 ```
 
 说明：
 
-- `git checkout -- src/` 会**丢弃 `src/` 下所有未提交改动**，不只是数据桥。执行前先 `git status --short` 确认没有其他在写的工作。
-- `src/data/live.ts` 是未跟踪文件，必须单独删除；保留它不会报错（回滚后的 `main.tsx` 不再 import），但会留下死代码。
-- `public/snapshot.json` 与 `scripts/real-snapshot.js` 不受 `git checkout -- src/` 影响；重新构建时仍会被复制到 `dist/`。此时页面会回到模拟世界，但 `dist/snapshot.json` 仍可通过 HTTP 访问。
+- `git revert 6652fb7` 会生成一个反向提交，保留历史，只撤销轮询；桥接代码仍在。
+- `git checkout 141ce62 -- src` 会**丢弃 `src/` 下所有未提交改动**，不只是数据桥。执行前先 `git status --short` 确认没有其他在写的工作。
+- 完全回滚会删除 `public/snapshot.json`、`scripts/real-snapshot.js`、`scripts/sanitize-snapshot.js`；当前工作区 `public/snapshot.json` 有未提交改动，务必先备份。
+- 此时页面会回到模拟世界，`dist/snapshot.json` 在重新构建后不再存在。
 - 8901 服务每次请求都从磁盘读文件，回滚后**不需要重启服务**，浏览器强制刷新即可。若服务进程本身异常，再重启。
 - 构建后 `dist/index.html` 预期回到约 **757,706 字节**（基线备份值），实际大小以构建输出为准；此预期未在本文档中重新构建验证。
 
@@ -372,7 +402,7 @@ Invoke-WebRequest http://127.0.0.1:8901/ -UseBasicParsing | Select-Object Status
 Select-String -Path dist\index.html -Pattern "AGENT HQ" -SimpleMatch
 ```
 
-回滚后页面直接使用内置模拟世界（39 条模拟任务）。注意：此时 `main.tsx` 已恢复原版，**不会请求 snapshot，也不会写 `data-source` 或打印 `[live]` 日志**。阶段二报告里的 `mock` 回退验证是“保留新代码、只删 `dist/snapshot.json`”的场景，和这里的整段回滚不是一回事；该结果本文档未复验。
+完全回滚后页面直接使用内置模拟世界（39 条模拟任务）。注意：此时 `main.tsx` 已恢复原版，**不会请求 snapshot，也不会写 `data-source` 或打印 `[live]` 日志**。只回滚 `6652fb7`（保留桥接）时仍会请求 snapshot，但没有 30s 轮询。阶段二报告里的 `mock` 回退验证是“保留新代码、只删 `dist/snapshot.json`”的场景，和这里的整段回滚不是一回事；该结果本文档未复验。
 
 ---
 
@@ -413,7 +443,7 @@ npm rebuild esbuild
 
 ```text
 GET http://127.0.0.1:8901/snapshot.json
-200  text/html; charset=utf-8  <约 0.76 MB（当前 index.html 761,297 字节）>
+200  text/html; charset=utf-8  <约 0.76 MB（当前 index.html 764,442 字节）>
 ```
 
 原因：`dist/snapshot.json` 不存在，静态服务器的 SPA fallback 把 `dist/index.html` 以 200 返回。服务器对**任何**缺失路径都这样处理，不一定代表路由错误。
@@ -434,7 +464,7 @@ npm run build          # 把 public\snapshot.json 复制到 dist\
 # 再验证 content-type
 ```
 
-不要通过修改静态服务器的 404 行为来“修复”数据问题；根因是构建产物缺文件。当前实测已恢复为 `200 application/json`、15,213 字节。
+不要通过修改静态服务器的 404 行为来“修复”数据问题；根因是构建产物缺文件。当前实测已恢复为 `200 application/json`、27,873 字节。
 
 补充：`src/data/live.ts` 已校验 `content-type`，非 JSON 会 `console.warn` 并回退模拟世界，不会白屏；如果页面仍是真实模式但数据为空，优先检查 `snapshot.json` 的 `meta.warnings` 与结构校验。
 
@@ -457,22 +487,22 @@ npm run build          # 把 public\snapshot.json 复制到 dist\
 
 ### 6.6 页面很空、没有运行中任务
 
-当前真实快照 5 条任务全部 `done`，所以 `running=0`、`progress=100%`、没有告警、没有会议。这是真实数据状态，不是桥接失败。需要演示效果时，删除 `dist/snapshot.json` 或使用无快照的构建，页面会回退模拟世界。
+当前真实快照 5 条任务全部 `done`，`progress=100%`；`running=3` 来自最近仍有未完成会话运行的 Agent，并不表示任务未完成。没有告警、没有会议仍是真实数据状态，不是桥接失败。需要演示更多任务流转时，删除 `dist/snapshot.json` 或使用无快照的构建，页面会回退模拟世界。
 
 ---
 
 ## 7. 已知限制
 
-1. **数据仍是“半真实”**：Agent 列表来自 `metrics-history.jsonl`（会话/Token）与 `tasks.jsonl` 的并集；任务来自 `tasks.jsonl`；`tool`、逐任务 `progress`、逐任务 `tokens`、真实工具事件流均未接。
-2. **Agent 状态是推导值**：按“最近一条任务”的 state 推导，不是实时心跳。任务一结束就变 `standby`，无法反映“正在推理但尚未写回任务”的状态。
-3. **只有 3 个 Agent 落位**：当前 12 个真实 Agent 中 9 个没有任务、无法确定部门，只保留在 `meta.unplacedAgents` / `meta.agentStats`，场景里看不到。
+1. **数据仍是“半真实”**：Agent 列表来自 `openclaw.json` / `data/agents` / `metrics-history.jsonl` 与 `tasks.jsonl` 的并集；任务来自 `tasks.jsonl`；`tool`、逐任务 `progress`、逐任务 `tokens`、真实工具事件流均未接。
+2. **Agent 状态是推导值**：按最近任务状态与 2h 内未完成会话运行证据推导，不是实时心跳；无证据时回落 `idle`。
+3. **12 个 Agent 全部落位，但部分部门是兜底映射**：9 个按部门表直接映射，3 个（`creative-planner`、`integration-communication`、`openclaw`）落到 `ops`，部门归属可能不准确；明细在 `meta.unassignedAgents` / `meta.agentStats`。
 4. **会议完全未接**：`meeting=null`、`inMeeting=0`、`seatIndex=null`，会议室永远空闲。
 5. **KPI 口径不完全等价**：`kpis.total/done` 只是 `tasks.jsonl` 当前可见记录数，不是历史累计；文件被裁剪时数字会变小。
 6. **`kpis.tokens` 是工作区累计 Token**，不是本快照内任务消耗；`tasks[].tokens` 恒为 0。
-7. **部门映射有近似**：`安全部 → eng`（上游没有安全部房间），未知 room 兜底到 `eng`，两者都会在 `meta.roomMapping` / `meta.warnings` 标注。
-8. **没有自动刷新**：只在页面启动时加载一次；更新数据必须重新生成快照、重新构建、刷新页面。
-9. **场景不能热更新 Agent 集合**：`HQScene` 在构造时按 `world.agents` 建实例网格，数量/顺序变化会错位；当前只做启动时加载。
-10. **阶段二改动未提交**：`src/` 的 3 个修改和 `live.ts` 等都是工作区文件，干净 clone 无法复现真实模式。
+7. **部门映射有近似**：`安全部 → eng`（上游没有安全部房间），未知 room 兜底到 `eng`，3 个无部门 Agent 兜底到 `ops`，都会在 `meta.roomMapping` / `meta.warnings` 标注。
+8. **前端会轮询，但数据生成不会自动刷新**：页面每 30s 拉一次 `snapshot.json`；生成器本身仍需手动执行或外部定时任务，生成后还要 `npm run build`（或直接写 `dist/snapshot.json`）。
+9. **场景不能热更新 Agent 集合**：轮询会更新数据，但 `HQScene` 在构造时按 `world.agents` 建实例网格，Agent 数量/顺序变化仍可能错位。
+10. **提交版本与当前工作区快照不一致**：`6652fb7` / `4909045` 自带 15,213 字节 / 3 个落位 Agent；当前 27,873 字节 / 12 个 Agent 的快照文件尚未提交（生成器与脱敏脚本已在 `4909045`）。
 11. **构建与浏览器验收未由本文档复验**：构建数字来自现有日志/产物；浏览器真实模式、回退行为来自阶段二报告，统一视为未验证。
 12. **NAS / 8902 未落地**：仓库内没有相关实现；当前服务只监听 `127.0.0.1:8901`。
 13. **静态服务器无缓存控制/无 404 语义**：所有缺失路径都回退 `index.html`，排查时不能只看 HTTP 200。
@@ -483,18 +513,21 @@ npm run build          # 把 public\snapshot.json 复制到 dist\
 
 | 检查项 | 结果 | 方式 |
 | --- | --- | --- |
-| 上游 commit / 时间 / 说明 | `141ce62` / 2026-10-29 21:40:52 +0800 / `ci: 重新触发 Pages 部署` | `git log -1` |
-| 工作区改动 | 3 个 `src/` 文件修改，桥接文件未跟踪 | `git status --porcelain` |
+| 提交顺序 | `141ce62`（基线）→ `d1ce0ad`（桥接）→ `6652fb7`（轮询）→ `4909045`（脱敏） | `git log --oneline` |
+| 远端状态 | `origin/main` 仍为 `141ce62`；本地 `d1ce0ad` / `6652fb7` / `4909045` 未推送 | `git ls-remote origin refs/heads/main` |
+| 工作区改动 | HEAD 为 `4909045`；仅 `public/snapshot.json` 有未提交改动 | `git status --porcelain` |
+| 当前快照结构 | 12 agents / 5 tasks / 27,873 字节 | `node` 读取 `public/snapshot.json` |
 | Node / npm | v24.22.1 / 11.19.1 | `node -v`、`npm -v` |
-| 构建产物 | `dist/index.html` 761,297；`dist/snapshot.json` 15,213 | 文件属性 |
-| 8901 首页 | 200，`text/html; charset=utf-8`，761,297 字节 | `Invoke-WebRequest` |
-| 8901 快照 | 200，`application/json; charset=utf-8`，15,213 字节 | `Invoke-WebRequest` |
+| 构建产物 | `dist/index.html` 764,442；`dist/snapshot.json` 27,873 | 文件属性 |
+| 8901 首页 | 200，`text/html; charset=utf-8`，764,442 字节 | `Invoke-WebRequest` |
+| 8901 快照 | 200，`application/json; charset=utf-8`，27,873 字节 | `Invoke-WebRequest` |
 | 端口监听 | 仅 8901；8900 / 8902 无监听 | `Get-NetTCPConnection` |
 | 备份文件 | `.agent-hq-backup\dist-index-1926.html` 存在，757,706 字节 | `Test-Path` / 文件属性 |
 | esbuild 二进制 | `node_modules\@esbuild\win32-x64\esbuild.exe` 存在 | `Test-Path` |
 | `npm ci` | **未验证**（本次用 `npm install` 验证） | — |
 | `npm run build`（本次重跑） | **未验证**（引用现有日志与产物） | — |
 | 浏览器真实模式 / 回退 | **未验证**（引用阶段二报告） | — |
+| 浏览器 30s 轮询 | **未验证**（引用 `LIVE-REFRESH-REPORT.md`） | — |
 | 5273 dev / 5274 preview | **未验证** | — |
 | 8902 NAS 部署 | **未验证**，仓库无实现 | — |
 
@@ -506,4 +539,5 @@ npm run build          # 把 public\snapshot.json 复制到 dist\
 - `INTEGRATION.md`：真实数据桥第一阶段字段映射、第二阶段建议 diff、风险与验收清单。
 - `REAL-DATA-BRIDGE-REPORT.md`：第一阶段实跑结果与数据统计。
 - `REAL-DATA-BRIDGE-PHASE2-REPORT.md`：第二阶段改动、构建与浏览器验收记录（本文档未复验）。
+- `LIVE-REFRESH-REPORT.md`：30s 实时轮询、指纹去重与可见性暂停的验收记录（本文档未复验）。
 - `upstream-install-report.md`：首次安装、构建、8901 启动与 HTTP 验证记录。
