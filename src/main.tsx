@@ -17,7 +17,7 @@ async function boot() {
   }
 
   // 数据源标记，便于验收（无需读控制台）
-  document.documentElement.dataset.dataSource = snap ? 'live' : 'mock'
+  document.documentElement.setAttribute('data-source', snap ? 'live' : 'mock')
 
   // 2) 动态 import：保证 App / TaskTable / useHQ 的模块级求值发生在 applySnapshot 之后
   const [{ default: App }, { useHQ }] = await Promise.all([import('./App'), import('./store/useHQ')])
@@ -41,7 +41,7 @@ async function boot() {
     onSnapshot: (next) => {
       world.applySnapshot(next)
       useHQ.setState({ snap: world.snapshot() })
-      document.documentElement.dataset.dataSource = 'live'
+      document.documentElement.setAttribute('data-source', 'live')
     },
   })
 }
