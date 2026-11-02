@@ -1,4 +1,4 @@
-import type { Agent, Dept, Ev, Kpis, Meeting, Snapshot, Task } from './types'
+import type { Agent, Dept, DeptLoad, Ev, Kpis, Meeting, Snapshot, Task } from './types'
 
 /* ------------------------------------------------------------------ 房间 / 部门 */
 
@@ -84,6 +84,8 @@ const TICK_MS = 420
 
 class World {
   version = 0
+  /** true = 已接入真实快照，暂停模拟推进（tick 空转） */
+  paused = false
   agents: Agent[] = []
   tasks: Task[] = []
   byId = new Map<string, Task>()
@@ -111,10 +113,55 @@ class World {
 
   private loadVersion = -1
   private loadCache: { id: string; running: number; total: number; error: number; meeting: number }[] = []
+  /** 真实快照自带的 deptLoad（applySnapshot 后优先使用） */
+  private loadOverride: DeptLoad[] | null = null
 
   constructor() {
     this.seed()
     this.recomputeLoad()
+  }
+
+  /**
+   * 用真实 Snapshot 覆盖模拟世界（第二阶段数据桥）。
+   * 必须在 HQScene 构造 / App 模块求值之前调用；调用后 paused = true，
+   * 模拟的混沌注入、开会、自动派单全部停止。
+   */
+  applySnapshot(s: Snapshot) {
+    this.paused = true
+
+    this.agents = s.agents.map((a) => ({ ...a }))
+    this.tasks = s.tasks.map((t) => ({ ...t }))
+    this.byId = new Map(this.tasks.map((t) => [t.id, t]))
+    this.events = s.events.map((e) => ({ ...e }))
+    this.meeting = s.meeting
+      ? { ...s.meeting, agentIds: s.meeting.agentIds.slice(), deptIds: s.meeting.deptIds.slice() }
+      : null
+
+    this.doneCount = s.kpis.done
+    this.failedCount = this.tasks.filter((t) => t.status === 'failed').length
+    this.totalCount = s.kpis.total
+    this.tokens = s.kpis.tokens
+    this.durCnt = s.kpis.done
+    this.durSum = s.kpis.avgMin * s.kpis.done
+
+    // deptLoad 以快照为准（12 个房间全量补齐）；快照缺失时退回按 agents 重算
+    const rows = Array.isArray(s.deptLoad) ? s.deptLoad : []
+    this.loadOverride = rows.length
+      ? DEPTS.map((d) => {
+          const r = rows.find((x) => x.id === d.id)
+          return r
+            ? { id: d.id, running: r.running, total: r.total, error: r.error, meeting: r.meeting }
+            : { id: d.id, running: 0, total: 0, error: 0, meeting: 0 }
+        })
+      : null
+    this.loadVersion = -1
+
+    // 清掉模拟世界遗留的计时器，避免将来 resume 时立刻伪造出任务
+    this.timers.clear()
+    this.recoverAt.clear()
+
+    this.touch()
+    this.subs.forEach((fn) => fn())
   }
 
   private seed() {
@@ -347,6 +394,8 @@ class World {
   /* ---------------------------------------------------------------- 主循环 */
 
   tick() {
+    // 真实模式下不自动推进：状态完全由快照决定
+    if (this.paused) return
     this.clock++
     const wall = now()
 
@@ -426,8 +475,9 @@ class World {
     return () => this.subs.delete(fn)
   }
 
-  /** 手动重试：给详情抽屉的按钮用 */
+  /** 手动重试：给详情抽屉的按钮用（真实模式下禁用，避免伪造任务） */
   retryAgent(id: string) {
+    if (this.paused) return
     const a = this.agents.find((x) => x.id === id)
     if (!a || a.status === 'running' || a.status === 'meeting') return
     this.timers.delete(a.id)
@@ -439,14 +489,16 @@ class World {
 
   /* ---------------------------------------------------------------- 调试 */
 
-  /** 立刻召集一场会议（截图 / 演示用） */
+  /** 立刻召集一场会议（截图 / 演示用；真实模式下禁用） */
   forceMeeting() {
+    if (this.paused) return
     if (!this.meeting) this.startMeeting()
     this.subs.forEach((fn) => fn())
   }
 
-  /** 立刻制造一次异常（截图 / 演示用） */
+  /** 立刻制造一次异常（截图 / 演示用；真实模式下禁用） */
   forceError() {
+    if (this.paused) return
     const busy = this.agents.filter((a) => a.status === 'running' && a.role === 'member')
     if (busy.length) this.failTask(busy[0])
     this.subs.forEach((fn) => fn())
@@ -471,6 +523,7 @@ class World {
 
   /** 带版本号的缓存：3D 每帧读它也不会产生分配 */
   deptLoad() {
+    if (this.loadOverride) return this.loadOverride
     if (this.loadVersion !== this.version) this.recomputeLoad()
     return this.loadCache
   }

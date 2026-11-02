@@ -1,4 +1,4 @@
-import { DEPTS, world } from '../data/world'
+import { DEPTS } from '../data/world'
 import { useHQ } from '../store/useHQ'
 import type { Task } from '../data/types'
 
@@ -9,8 +9,6 @@ const STATUS: Record<Task['status'], { cls: string; label: string }> = {
   failed: { cls: 'err', label: 'ERR' },
   queued: { cls: 'wait', label: 'WAIT' },
 }
-
-const AGENT_BY_ID = new Map(world.agents.map((a) => [a.id, a]))
 
 export default function TaskTable() {
   const snap = useHQ((s) => s.snap)
@@ -37,7 +35,7 @@ export default function TaskTable() {
       <div className="tasks">
         {rows.map((t) => {
           const dept = DEPTS.find((d) => d.id === t.deptId)!
-          const agent = AGENT_BY_ID.get(t.agentId)
+          const agent = snap.agents.find((a) => a.id === t.agentId)
           const st = STATUS[t.status]
           return (
             <div
