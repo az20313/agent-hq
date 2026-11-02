@@ -1,19 +1,130 @@
-import type { Snapshot } from './types'
+import type { Agent, Snapshot, Task } from './types'
+import { DEPTS } from './world'
 
-/** 最小结构校验：防止把 404 页面 / 错误 JSON 当成快照灌进世界 */
+/** 快照请求超时：8901 或 CDN 挂起时不能让首屏无限等待 */
+const FETCH_TIMEOUT_MS = 5_000
+/** 非轮询（首屏/手工）失败告警限流 */
+const FETCH_WARN_INTERVAL_MS = 60_000
+let lastFetchWarnAt = 0
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v)
+}
+
+function isStringOrNull(v: unknown): v is string | null {
+  return v === null || typeof v === 'string'
+}
+
+function isNumberOrNull(v: unknown): v is number | null {
+  return v === null || isFiniteNumber(v)
+}
+
+const AGENT_STATUSES = new Set([
+  'idle',
+  'standby',
+  'running',
+  'blocked',
+  'error',
+  'offline',
+  'meeting',
+])
+
+const TASK_STATUSES = new Set(['queued', 'running', 'review', 'done', 'failed'])
+/** 场景/抽屉按固定 DEPTS 建房间；未知 deptId 的 agent 会在 3D 初始化时崩，直接判快照不可用 */
+const DEPT_IDS = new Set(DEPTS.map((d) => d.id))
+
+function isAgent(v: unknown): v is Agent {
+  if (!isRecord(v)) return false
+  return (
+    typeof v.id === 'string' &&
+    v.id !== '' &&
+    typeof v.deptId === 'string' &&
+    v.deptId !== '' &&
+    DEPT_IDS.has(v.deptId) &&
+    typeof v.name === 'string' &&
+    typeof v.status === 'string' &&
+    AGENT_STATUSES.has(v.status) &&
+    isFiniteNumber(v.deskIndex) &&
+    isStringOrNull(v.taskId) &&
+    isFiniteNumber(v.tokens) &&
+    isNumberOrNull(v.startedAt) &&
+    isFiniteNumber(v.heat) &&
+    isNumberOrNull(v.seatIndex) &&
+    (v.role === 'director' || v.role === 'member')
+  )
+}
+
+function isTask(v: unknown): v is Task {
+  if (!isRecord(v)) return false
+  return (
+    typeof v.id === 'string' &&
+    v.id !== '' &&
+    typeof v.deptId === 'string' &&
+    v.deptId !== '' &&
+    typeof v.agentId === 'string' &&
+    typeof v.title === 'string' &&
+    typeof v.summary === 'string' &&
+    typeof v.status === 'string' &&
+    TASK_STATUSES.has(v.status) &&
+    isFiniteNumber(v.progress) &&
+    isFiniteNumber(v.createdAt) &&
+    isNumberOrNull(v.finishedAt) &&
+    isFiniteNumber(v.durationMs) &&
+    typeof v.tool === 'string' &&
+    isFiniteNumber(v.tokens) &&
+    (v.error === undefined || typeof v.error === 'string')
+  )
+}
+
+function isKpis(v: unknown): boolean {
+  if (!isRecord(v)) return false
+  return ['total', 'running', 'blocked', 'done', 'avgMin', 'tokens', 'progress', 'inMeeting'].every(
+    (k) => isFiniteNumber(v[k])
+  )
+}
+
+function isMeeting(v: unknown): boolean {
+  // null 合法；对象必须带可 slice 的 agentIds/deptIds，applySnapshot 才不会抛 TypeError
+  return (
+    v === null ||
+    (isRecord(v) && Array.isArray(v.agentIds) && Array.isArray(v.deptIds))
+  )
+}
+
+/** 最小结构校验：防止把 404 页面 / 错误 JSON / 半截快照当成快照灌进世界 */
 function isSnapshot(v: unknown): v is Snapshot {
-  if (!v || typeof v !== 'object') return false
+  if (!isRecord(v)) return false
   const s = v as Partial<Snapshot>
   return (
-    !!s.kpis &&
-    typeof s.kpis === 'object' &&
+    isKpis(s.kpis) &&
     Array.isArray(s.agents) &&
+    s.agents.every(isAgent) &&
     Array.isArray(s.tasks) &&
+    s.tasks.every(isTask) &&
     Array.isArray(s.events) &&
     Array.isArray(s.deptLoad) &&
-    (s.meeting === null || typeof s.meeting === 'object') &&
-    typeof s.ts === 'number'
+    isMeeting(s.meeting) &&
+    isFiniteNumber(s.ts)
   )
+}
+
+function isAbortError(e: unknown): boolean {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    (e as { name?: unknown }).name === 'AbortError'
+  )
+}
+
+function warnFetchThrottled(message: string) {
+  const now = Date.now()
+  if (now - lastFetchWarnAt < FETCH_WARN_INTERVAL_MS) return
+  lastFetchWarnAt = now
+  console.warn(message)
 }
 
 export interface FetchSnapshotOptions {
@@ -31,8 +142,12 @@ export async function fetchSnapshot(
   url = './snapshot.json',
   opts: FetchSnapshotOptions = {}
 ): Promise<Snapshot | null> {
+  let timer: ReturnType<typeof setTimeout> | null = null
   try {
-    const res = await fetch(url, { cache: 'no-store' })
+    const controller = new AbortController()
+    timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+
+    const res = await fetch(url, { cache: 'no-store', signal: controller.signal })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
     const ct = (res.headers.get('content-type') || '').toLowerCase()
@@ -46,9 +161,16 @@ export async function fetchSnapshot(
     return data
   } catch (e) {
     if (!opts.quiet) {
-      console.warn('[live] 真实快照加载失败，回退内置模拟世界：', e)
+      const reason = isAbortError(e)
+        ? `请求超时（>${FETCH_TIMEOUT_MS}ms）`
+        : e instanceof Error
+          ? e.message
+          : String(e)
+      warnFetchThrottled(`[live] 真实快照加载失败，回退内置模拟世界：${reason}`)
     }
     return null
+  } finally {
+    if (timer !== null) clearTimeout(timer)
   }
 }
 

@@ -34,14 +34,14 @@ export default function TaskTable() {
       </div>
       <div className="tasks">
         {rows.map((t) => {
-          const dept = DEPTS.find((d) => d.id === t.deptId)!
+          const dept = DEPTS.find((d) => d.id === t.deptId)
           const agent = snap.agents.find((a) => a.id === t.agentId)
-          const st = STATUS[t.status]
+          const st = STATUS[t.status] ?? { cls: 'wait', label: 'UNKNOWN' }
           return (
             <div
               key={t.id}
               className="task-row"
-              style={{ ['--c' as string]: dept.color }}
+              style={{ ['--c' as string]: dept?.color ?? 'var(--faint)' }}
               onClick={() => {
                 useHQ.getState().setFocusDept(t.deptId)
                 useHQ.getState().openAgent(t.agentId)
@@ -53,9 +53,15 @@ export default function TaskTable() {
                   {t.title}
                 </div>
                 <div className="t-meta">
-                  <span>{agent?.name ?? '—'}</span>
+                  <span>{agent?.name || t.agentId}</span>
                   <span>·</span>
                   <span>{t.tool}</span>
+                  {!dept && (
+                    <>
+                      <span>·</span>
+                      <span>未分配</span>
+                    </>
+                  )}
                   {t.status === 'running' && <span>· {t.progress.toFixed(0)}%</span>}
                   {t.status === 'failed' && <span style={{ color: 'var(--red)' }}>· {t.error}</span>}
                 </div>
