@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { world } from './data/world'
-import { fetchSnapshot } from './data/live'
+import { fetchSnapshot, startLivePolling } from './data/live'
 import './styles/ui.css'
 
 async function boot() {
@@ -29,6 +29,21 @@ async function boot() {
       <App />
     </React.StrictMode>
   )
+
+  // 3) 实时刷新：每 30s 拉一次 /snapshot.json，内容有变化才 apply。
+  //    - 间隔可用 window.__HQ_POLL_MS 覆盖（调试用）
+  //    - 页面隐藏时暂停，恢复可见时立即补拉一次
+  //    - 启动时已拉过一次，immediate=false 避免重复请求
+  //    - apply 后显式同步 store：world.subscribe 的 420ms 节流可能吞掉 paused 世界的唯一一次通知
+  startLivePolling({
+    initialSnapshot: snap,
+    immediate: false,
+    onSnapshot: (next) => {
+      world.applySnapshot(next)
+      useHQ.setState({ snap: world.snapshot() })
+      document.documentElement.dataset.dataSource = 'live'
+    },
+  })
 }
 
 boot()
